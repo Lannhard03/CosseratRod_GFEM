@@ -1,76 +1,53 @@
 F = FiberNetwork;
 
-%Start of rod 1 and end of rod 2 and 3 are fixed
-F.fixed_nodes = [1, 64, 96]; 
-%Nodes 32 and 33 are connected: their relative positions and rotations should be preserved.
-%For more connections add more rows.
-F.connected_nodes = [32, 33, 65]; 
+F.m = 96;
 
-rod1 = Rod;
-rod2 = Rod;
-rod3 = Rod;
+num_edges = F.m - 3;
+F.G = 3/(num_edges) * ones(num_edges, 1); %Uniform grid, in total length is 3.
 
-rod1.m = 32;
-rod1.G = linspace(0,1, rod1.m);
-rod1.A = [1963, 755, 755];
-rod1.K = [0.94, 1.23, 1.23];
+F.edges = zeros(num_edges, 2);
+F.edges(1:31, 1) = 1:31;
+F.edges(1:31, 2) = 2:32;
+F.edges(32:62, 1) = 33:63;
+F.edges(32:62, 2) = 34:64;
+F.edges(63:93, 1) = 65:95;
+F.edges(63:93, 2) = 66:96;
 
-rod2.m = 32;
-rod2.G = linspace(0,1, rod2.m);
-rod2.A = [1963, 755, 755];
-rod2.K = [0.94, 1.23, 1.23];
+F.fixed_nodes = [1, 64, 96];
 
-rod3.m = 32;
-rod3.G = linspace(0,1, rod3.m);
-rod3.A = [1963, 755, 755];
-rod3.K = [0.94, 1.23, 1.23];
+F.connected_nodes = [32, 33, 65];
+F = F.apply_connections();
 
-rod1.phi = zeros(rod1.m, 3);
-rod1.R = zeros(rod1.m, 4);
+F.A = repmat([1963, 755, 755], num_edges, 1);
+F.K = repmat([0.94, 1.23, 1.23], num_edges, 1);
 
-rod1.phi(:, 1) = linspace(0, 1, 32).';
-rod1.R(:, 1) = 1;
+F.phi = zeros(F.m, 3);
+F.R = zeros(F.m, 4);
 
+F.phi(1:32, 1) = linspace(0, 1, 32).';
+F.R(1:32, 1) = 1;
 
-rod2.phi = zeros(rod2.m, 3);
-rod2.R = zeros(rod2.m, 4);
+F.phi(33:64, 1) = linspace(1, 0.5, 32).';
+F.phi(33:64, 2) = linspace(0, 1, 32).';
 
-%Add "bending" here!
-rod2.phi(:, 1) = linspace(1, 0.5, 32).';
-rod2.phi(:, 2) = linspace(0, 1, 32).';
+F.R(33:64, 1) = 1/sqrt(2);
+F.R(33:64, 4) = 1/sqrt(2); %Rotation 90 around z-axis
 
-rod2.R(:, 1) = 1/sqrt(2);
-rod2.R(:, 4) = 1/sqrt(2); %Rotation 90 around z-axis
+F.phi(65:96, 1) = linspace(1, 0.5, 32).';
+F.phi(65:96, 2) = linspace(0, -1, 32).';
+F.phi(65:96, 3) = linspace(0, 0.5, 32).';
 
+F.R(65:96, 1) = 1/sqrt(2);
+F.R(65:96, 4) = -1/sqrt(2); %Rotation 90 around z-axis
 
-rod3.phi = zeros(rod2.m, 3);
-rod3.R = zeros(rod2.m, 4);
+F.Us_pre = zeros(num_edges, 3); %One strain for each edge.
+F.Us_pre(:, 1) = 1;
 
-%Add "bending" here!
-rod3.phi(:, 1) = linspace(1, 1.5, 32).';
-rod3.phi(:, 2) = linspace(0, -1, 32).';
+F.Rs_pre = zeros(num_edges, 3);
 
-rod3.R(:, 1) = 1/sqrt(2);
-rod3.R(:, 4) = -1/sqrt(2); %Rotation 90 around z-axis
-
-
-rod1.Us_pre = zeros(rod1.m, 3);
-rod1.Us_pre(:, 1) = 1;
-
-rod2.Us_pre = zeros(rod2.m, 3);
-rod2.Us_pre(:, 1) = 1;
-
-rod3.Us_pre = zeros(rod3.m, 3);
-rod3.Us_pre(:, 1) = 1;
-
-rod1.Rs_pre = zeros(rod1.m, 3);
-rod2.Rs_pre = zeros(rod2.m, 3);
-rod3.Rs_pre = zeros(rod3.m, 3);
-
-F.rods = [rod1, rod2, rod3];
-
-%Draw initial rod
 draw_network(F);
+
+init_log = quat_log(F.R(32, :), F.R(33, :));
 
 %Define solver parameters
 prm = solver_param;
@@ -83,5 +60,14 @@ prm.allowed_failed_backtracks = 5;
 
 F = BasicSolver(F, prm);
 
-%Draw "solved" rod
-draw_network(F)
+
+after_log = quat_log(F.R(32, :), F.R(33, :));
+
+init_log
+after_log
+
+rod1_len = approx_rod_len(F.phi(1:32, :))
+rod2_len = approx_rod_len(F.phi(33:64, :))
+rod3_len = approx_rod_len(F.phi(65:96, :))
+
+draw_network(F);

@@ -1,35 +1,18 @@
 function F = network_solver(F, params)
-    rods = F.rods;
-    n = size(rods);
-    n = n(1,2);
 
-    m_tot = 0;
-    J0 = 0; 
+    J0 = J(F);    
 
-    for i = 1:n
-        m_tot = m_tot + rods(i).m;
-        J0 = J0 + J(rods(i).G, rods(i).A, rods(i).K, rods(i).phi, rods(i).R, rods(i).Us_pre, rods(i).Rs_pre);    
-    end
-    
-    gradphi = zeros(m_tot, 3);
-    gradR = zeros(m_tot, 3);
-
-    h = rods(1).G(2) - rods(1).G(1);
-    discrete_laplacian = disc_laplacian(F, n, h, m_tot);
+    discrete_laplacian = disc_laplacian(F);
 
     failed_backtracks = 0;
     %===== Outer loop =====
     for p = 1:params.iter_max
         fprintf("Iteration %d\n", p);
 
-        %Compute total gradient
-        curr_index = 1;
-        for i = 1:n
-            l = curr_index;
-            r = curr_index + rods(i).m - 1;
-            [gradphi(l:r, :), gradR(l:r, :)] = grad_J(rods(i).G, rods(i).A, rods(i).K, rods(i).phi, rods(i).R, rods(i).Us_pre, rods(i).Rs_pre);
-            curr_index = r + 1;
-        end
+        [gradphi, gradR] = grad_J(F);
+ 
+        %Pre-condition with discrete laplacian
+        gradphi = linsolve(discrete_laplacian, gradphi);
 
         %Pre-conditioning R with Laplacian gives worse results,
         %what is the correct way to pre-condition it?
@@ -37,18 +20,13 @@ function F = network_solver(F, params)
         %gradR_col = reshape(gradR.', [], 1);
         %gradR_col = linsolve(discrete_quat_laplacian, gradR_col);
         %gradR = reshape(gradR_col, 3, []).';
-       
-        [gradphi,gradR] = enforce_connections(F,gradphi,gradR);
-
-        %Pre-condition with discrete laplacian
-        gradphi = linsolve(discrete_laplacian, gradphi);
 
         [gradphi,gradR] = enforce_boudaries(F,gradphi,gradR);
     
         %Compute length of gradient
         gradphi_len = 0;
         gradR_len = 0;
-        for i = 1:m_tot
+        for i = 1:F.num_network_index
             gradphi_len = gradphi_len + norm(gradphi(i, :));
             %WHY 1/2 here??
             gradR_len= gradR_len + 1/2 * norm(gradR(i, :));
@@ -64,36 +42,21 @@ function F = network_solver(F, params)
         for l = 0:params.backtracking_max
             steplength = params.beta^l * params.alpha;
 
-            phi1 = zeros(m_tot, 3);
-            R1 = zeros(m_tot, 4);
+            %Save previous solution
+            phi1 = F.phi;
+            R1 = F.R;
 
             %Take step in gradient direction and update energy.
-            curr_index = 1;
-            J1 = 0; 
-            for i = 1:n
-                a = curr_index;
-                b = curr_index + rods(i).m - 1;
-                [phi1(a:b, :), R1(a:b, :)] = step(rods(i).phi, rods(i).R, -gradphi(a:b, :), -gradR(a:b, :), steplength);
-
-                J1 = J1 + J(rods(i).G, rods(i).A, rods(i).K, phi1(a:b, :), R1(a:b, :), rods(i).Us_pre, rods(i).Rs_pre);    
-                curr_index = b + 1;
-            end
+            F = step(F, -gradphi, -gradR, steplength);
+            J1 = J(F); 
 
             %Update if new energy is lower
             if (J0 - J1) >= params.sigma*steplength*(gradphi_len + gradR_len)
-
-                curr_index = 1;
-                for i = 1:n
-                    a = curr_index;
-                    b = curr_index + rods(i).m - 1;
-
-                    rods(i).phi = phi1(a:b, :);
-                    rods(i).R = R1(a:b, :);
-
-                    curr_index = b + 1;
-                end
-
                 break;
+            else
+                %Reset solution to previous one.
+                F.phi = phi1;
+                F.R = R1;
             end
         end
     
@@ -110,25 +73,23 @@ function F = network_solver(F, params)
         if failed_backtracks > params.allowed_failed_backtracks
             break;
         end
-
-        F.rods = rods;
     end
 end
 
-function [phi1, R1] = step(phi, R, gradphi, gradR, steplength)
-    m = size(phi);
-    m = m(1, 1);
-    phi1 = phi + steplength * gradphi;
-    R1 = zeros(m, 4); %allocates new mem, bad...
+function F = step(F, gradphi, gradR, steplength)    
     gradR = steplength*gradR;
-    for l = 1:m
-        angle = norm(gradR(l, :));
+
+    for l = 1:F.m
+        index = F.network_index(l);
+        %Phi step
+        F.phi(l, :) = F.phi(l, :) + steplength * gradphi(index, :);
+
+        angle = norm(gradR(index, :));
         if angle ~= 0
-            axis = gradR(l, :) / angle;
-            R1(l, :) = quat_axisangle_mul(R(l, :), axis, angle);
-        else
-            R1(l, :) = R(l, :);
+            axis = gradR(index, :) / angle;
+            F.R(l, :) = quat_axisangle_mul(F.R(l, :), axis, angle);
         end
+        %else no need to update
     end
 end
 
@@ -257,246 +218,151 @@ function approx = dw_W(A, j, k, h, s, phi_p, R1, logR, Us_pre)
     approx = dot(factor1, factor2);
 end
 
-function J = J(G, A, K, phi, R, Us_pre, Rs_pre)
+function J = J(F)
     J = 0;
-    m = size(G);
-    m = m(1, 2);
     
-    %Trapezoid quadrature.
-    for i = 1:(m-1)
-        phi1 = phi(i, :);
-        phi2 = phi(i+1, :);
+    %Use Trapezoid rule to sum energy contributions from each edge in
+    %network
+    for i = 1:size(F.edges, 1)
+        left = F.edges(i, 1);
+        right = F.edges(i, 2);
+        phi1 = F.phi(left, :);
+        phi2 = F.phi(right, :);
     
-        R1 = R(i, :);
-        R2 = R(i+1, :);
+        R1 = F.R(left, :);
+        R2 = F.R(right, :);
     
-        h = G(i+1) - G(i);
+        h = F.G(i);
     
         Rs = Rs_approx(h, R1, R2);
     
         %Left endpoint
-        Us_pre_i = Us_pre(i, :);
-        Rs_pre_i = Rs_pre(i, :);
+        Us_pre = F.Us_pre(i, :);
+        Rs_pre = F.Rs_pre(i, :);
     
         Us = Us_approx(h, phi1, phi2, R1);
     
-        extension_term = dot(A, (Us - Us_pre_i).^2);
-        curvature_term = 4*dot(K, (Rs - Rs_pre_i).^2);
+        extension_term = dot(F.A(i, :), (Us - Us_pre).^2);
+        %Why times 4 here??
+        curvature_term = 4*dot(F.K(i, :), (Rs - Rs_pre).^2);
     
         J = J + h/2*(extension_term + curvature_term);
     
-        %Right endpoint
-        Us_pre_i = Us_pre(i+1, :);
-        Rs_pre_i = Rs_pre(i+1, :);
-    
+        %Right endpoints
         Us = Us_approx(h, phi1, phi2, R2);
     
-        extension_term = dot(A, (Us - Us_pre_i).^2);
-        curvature_term = 4*dot(K, (Rs - Rs_pre_i).^2);
+        extension_term = dot(F.A(i, :), (Us - Us_pre).^2);
+        %Why times 4 here??
+        curvature_term = 4*dot(F.K(i, :), (Rs - Rs_pre).^2);
 
         J = J + h/2*(extension_term + curvature_term);
     end
 end
 
-function [gradphi, gradR] = grad_J(G, A, K, phi, R, Us_pre, Rs_pre)
-    %Assemble each grid interval,
-    %Do the simple thing and integrate with a trapezoid
-    %quadrature rule, so that we only have to evaluate 
-    %integral at nodal points.
-    m = size(G);
-    m = m(1, 2);
+function [gradphi, gradR] = grad_J(F)
+    gradphi = zeros(F.num_network_index, 3);
+    gradR = zeros(F.num_network_index, 3);
     
-    gradphi = zeros(m, 3);
-    gradR = zeros(m, 3);
-    
-    %Compute for interior nodes
-    for i = 2:(m-1)
-        phi1 = phi(i-1, :);
-        phi2 = phi(i, :);
-        phi3 = phi(i+1, :);
-    
-        R1 = R(i-1, :);
-        R2 = R(i, :);
-        R3 = R(i+1, :);
-    
-        h1 = G(i) - G(i-1);
-        h2 = G(i+1) - G(i);
+    for i = 1:size(F.edges, 1)
+        left = F.edges(i, 1);
+        right = F.edges(i, 2);
 
-        phi1_p = (phi2 - phi1) / h1;
-        phi2_p = (phi3 - phi2) / h2;
-    
-        logR1 = quat_log(R1, R2);
-        logR2 = quat_log(R2, R3);
+        network_left  = F.network_index(left);
+        network_right = F.network_index(right);
 
-        Us_pre_1 = Us_pre(i-1, :);
-        Rs_pre_1 = Rs_pre(i-1, :);
-        Us_pre_2 = Us_pre(i, :);
-        Rs_pre_2 = Rs_pre(i, :);
-        Us_pre_3 = Us_pre(i+1, :);
-        Rs_pre_3 = Rs_pre(i+1, :);
+        phi1 = F.phi(left, :);
+        phi2 = F.phi(right, :);
+
+        R1 = F.R(left, :);
+        R2 = F.R(right, :);
+
+        h = F.G(i);
+
+        Us_pre = F.Us_pre(i, :);
+        Rs_pre = F.Rs_pre(i, :);
+
+        phi_p = (phi2 - phi1) / h;
     
+        logR = quat_log(R1, R2);
+
         for j = 1:3
-            dw_left1 = dw_W(A, j, 2, h1, 0, phi1_p, R1, logR1, Us_pre_1);
-            dw_right1 = dw_W(A, j, 2, h1, 1, phi1_p, R1, logR1, Us_pre_2);
-    
-            dw_left2 = dw_W(A, j, 1, h2, 0, phi2_p, R2, logR2, Us_pre_2);
-            dw_right2 = dw_W(A, j, 1, h2, 1, phi2_p, R2, logR2, Us_pre_3);
-    
-            dw_total = h1/2*(dw_left1 + dw_right1) + h2/2*(dw_left2 + dw_right2);
-            gradphi(i, j) = gradphi(i, j) + dw_total; 
-    
+            %===dw_W derivatives
+            %Compute change at the left and right endpoints, 
+            %when w changes in j direction at left endpoint
+            dw_left_left  = dw_W(F.A(i, :), j, 1, h, 0, phi_p, R1, logR, Us_pre);
+            dw_right_left = dw_W(F.A(i, :), j, 1, h, 1, phi_p, R1, logR, Us_pre);
 
-            dv_left1 = dv_W(A, K, j, 2, h1, 0, phi1_p, R1, R2, logR1, Us_pre_1, Rs_pre_1);
-            dv_right1 = dv_W(A, K, j, 2, h1, 1, phi1_p, R1, R2, logR1, Us_pre_2, Rs_pre_2);
-    
-            dv_left2 = dv_W(A, K, j, 1, h2, 0, phi2_p, R2, R3, logR2, Us_pre_2, Rs_pre_2);
-            dv_right2 = dv_W(A, K, j, 1, h2, 1, phi2_p, R2, R3, logR2, Us_pre_3, Rs_pre_3);
-    
-            total_dv = h1/2*(dv_left1 + dv_right1) + h2/2*(dv_left2 + dv_right2);
-            gradR(i, j) = gradR(i, j) + total_dv;
+            dw_total = h/2*(dw_left_left + dw_right_left);
+            gradphi(network_left, j) = gradphi(network_left, j) + dw_total; 
+                
+            %Compute change at the left and right endpoints, 
+            %when w changes in j direction at right endpoint
+            dw_left_right  = dw_W(F.A(i, :), j, 2, h, 0, phi_p, R1, logR, Us_pre);
+            dw_right_right = dw_W(F.A(i, :), j, 2, h, 1, phi_p, R1, logR, Us_pre);
+
+            dw_total = h/2*(dw_left_right + dw_right_right);
+            gradphi(network_right, j) = gradphi(network_right, j) + dw_total; 
+
+            %===dv_W derivatives
+            dv_left_left  = dv_W(F.A(i, :), F.K(i, :), j, 1, h, 0, phi_p, R1, R2, logR, Us_pre, Rs_pre);
+            dv_right_left = dv_W(F.A(i, :), F.K(i, :), j, 1, h, 1, phi_p, R1, R2, logR, Us_pre, Rs_pre);
+
+            total_dv = h/2*(dv_left_left + dv_right_left);
+            gradR(network_left, j) = gradR(network_left, j) + total_dv;
+
+            dv_left_right  = dv_W(F.A(i, :), F.K(i, :), j, 2, h, 0, phi_p, R1, R2, logR, Us_pre, Rs_pre);
+            dv_right_right = dv_W(F.A(i, :), F.K(i, :), j, 2, h, 1, phi_p, R1, R2, logR, Us_pre, Rs_pre);
+
+            total_dv = h/2*(dv_left_right + dv_right_right);
+            gradR(network_right, j) = gradR(network_right, j) + total_dv;
         end
-    end
-
-    %Left endpoint
-    phi2 = phi(1, :);
-    phi3 = phi(2, :);
-
-    R2 = R(1, :);
-    R3 = R(2, :);
-
-    h2 = G(2) - G(1);
-
-    phi2_p = (phi3 - phi2) / h2;
-
-    logR2 = quat_log(R2, R3);
-
-    Us_pre_2 = Us_pre(1, :);
-    Rs_pre_2 = Rs_pre(1, :);
-    Us_pre_3 = Us_pre(2, :);
-    Rs_pre_3 = Rs_pre(2, :);
-
-    for j = 1:3
-        dw_left2 = dw_W(A, j, 1, h2, 0, phi2_p, R2, logR2, Us_pre_2);
-        dw_right2 = dw_W(A, j, 1, h2, 1, phi2_p, R2, logR2, Us_pre_3);
-
-        dw_total = h2/2*(dw_left2 + dw_right2);
-        gradphi(1, j) = gradphi(1, j) + dw_total; 
-
-        dv_left2 = dv_W(A, K, j, 1, h2, 0, phi2_p, R2, R3, logR2, Us_pre_2, Rs_pre_2);
-        dv_right2 = dv_W(A, K, j, 1, h2, 1, phi2_p, R2, R3, logR2, Us_pre_3, Rs_pre_3);
-
-        total_dv = h2/2*(dv_left2 + dv_right2);
-        gradR(1, j) = gradR(1, j) + total_dv;
-    end
-
-    %Right endpoint
-    phi1 = phi(m-1, :);
-    phi2 = phi(m, :);
-
-    R1 = R(m-1, :);
-    R2 = R(m, :);
-
-    h1 = G(m) - G(m-1);
-
-    phi1_p = (phi2 - phi1) / h1;
-
-    logR1 = quat_log(R1, R2);
-
-    Us_pre_1 = Us_pre(m-1, :);
-    Rs_pre_1 = Rs_pre(m-1, :);
-    Us_pre_2 = Us_pre(m, :);
-    Rs_pre_2 = Rs_pre(m, :);
-
-    for j = 1:3
-        dw_left1 = dw_W(A, j, 2, h1, 0, phi1_p, R1, logR1, Us_pre_1);
-        dw_right1 = dw_W(A, j, 2, h1, 1, phi1_p, R1, logR1, Us_pre_2);
-
-        dw_total = h1/2*(dw_left1 + dw_right1);
-        gradphi(m, j) = gradphi(m, j) + dw_total; 
-
-        dv_left1 = dv_W(A, K, j, 2, h1, 0, phi1_p, R1, R2, logR1, Us_pre_1, Rs_pre_1);
-        dv_right1 = dv_W(A, K, j, 2, h1, 1, phi1_p, R1, R2, logR1, Us_pre_2, Rs_pre_2);
-
-        total_dv = h1/2*(dv_left1 + dv_right1);
-        gradR(m, j) = gradR(m, j) + total_dv;
-    end
-    
-
-end
-
-function [gradphi,gradR] = enforce_connections(F,gradphi,gradR)
-    num_connections = size(F.connected_nodes);
-    num_connections = num_connections(1);
-    
-    comb_gradphi = zeros(1, 3);
-    comb_gradR = zeros(1, 3);
-    for i = 1:num_connections
-        connected = F.connected_nodes(i, :);
-        num_connected = size(connected);
-        num_connected = num_connected(2);
-        %Sum up gradients
-        for j = 1:num_connected
-            comb_gradphi = comb_gradphi + gradphi(connected(j), :);
-            comb_gradR = comb_gradR + gradR(connected(j), :);
-        end
-        %Assign combined gradient
-        for j = 1:num_connected
-            gradphi(connected(j), :) = comb_gradphi;
-            gradR(connected(j), :) = comb_gradR;
-        end
-    end
+    end 
 end
     
-function [gradphi,gradR] = enforce_boudaries(F,gradphi,gradR)
-    num_fixed = size(F.fixed_nodes);
-    num_fixed = num_fixed(2);
-    for i = 1:num_fixed
-        gradphi(F.fixed_nodes(i), :) = zeros(1, 3);
-        gradR(F.fixed_nodes(i), :) = zeros(1, 3);
+function [gradphi,gradR] = enforce_boudaries(F, gradphi, gradR)
+    for i = 1:size(F.fixed_nodes, 2)
+        index = F.network_index(F.fixed_nodes(i));
+        gradphi(index, :) = zeros(1, 3);
+        gradR(index, :) = zeros(1, 3);
     end
 end
 
-function L = disc_laplacian(F, n, h, m_tot)
-    L = zeros(m_tot);
+function L = disc_laplacian(F)
+    L = zeros(F.num_network_index);
 
-    num_connections = size(F.connected_nodes);
-    num_connections = num_connections(1);
+    for i = 1:size(F.edges, 1)
+        left = F.edges(i, 1);
+        right = F.edges(i, 2);
 
-    %Connections within each rod
-    curr_index = 1;
-    for i = 1:n
-        m = F.rods(i).m;
-        a = curr_index;
-        b = curr_index + F.rods(i).m - 1;
-        
-        main_diag = -2*ones(m,1);
-        off_diag = 1*ones(m-1,1);
-        %Add to block corresponding with rod i
-        L(a:b, a:b) = L(a:b, a:b) + diag(main_diag);
-        L(a:b, a:b) = L(a:b, a:b) + diag(off_diag, 1);
-        L(a:b, a:b) = L(a:b, a:b) + diag(off_diag,-1);
-        
-       
-        curr_index = b + 1;
+        network_left  = F.network_index(left);
+        network_right = F.network_index(right);
+
+        h = F.G(i);
+
+        L(network_left, network_right) = L(network_left, network_right)  + 1/h^2;
+        L(network_right, network_left) = L(network_right, network_left)  + 1/h^2;
+        L(network_left, network_left)  = L(network_left, network_left)   - 1/h^2;
+        L(network_right, network_right)= L(network_right, network_right) - 1/h^2;
     end
 
-    %Connections between rods
-    for i = 1:num_connections
-        connected = F.connected_nodes(i, :);
-        num_connected = size(connected);
-        num_connected = num_connected(2);
-
-        for k = 1:num_connected
-            for l = 1:num_connected
-                if k == l
-                    continue;
-                end
-                %L(connected(k), connected(l)) = L(connected(k), connected(l)) + 1;
-            end
-        end
+    %Why?
+    for i = 1:size(F.fixed_nodes, 2)
+        index = F.fixed_nodes(i);
+        network_index = F.network_index(index);
+        L(network_index, network_index) = 2 * L(network_index, network_index);
     end
 
-    L = -1*L/(h*h);
+    %How to properly add connections between rods???
+    % for i = 1:size(F.connected_nodes, 1)
+    %     comb_row = zeros(1, F.m);
+    %     connected = F.connected_nodes(i, :);
+    %     %Add "implicit" edges
+    %     for l = 1:size(connected, 2)
+    %         L(connected(l), connected(l)) = 2 * L(connected(l), connected(l));
+    %     end
+    % end
+
+    L = -L;
 end
 
 function L = disc_quat_laplacian(h, m, R)

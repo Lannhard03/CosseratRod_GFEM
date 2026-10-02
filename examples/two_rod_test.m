@@ -1,55 +1,50 @@
 F = FiberNetwork;
 
-%Start of rod 1 and end of rod 2 are fixed
-F.fixed_nodes = [1, 64]; 
-%Nodes 32 and 33 are connected: their relative positions and rotations should be preserved.
-%For more connections add more rows.
-F.connected_nodes = [32, 33]; 
+F.m = 64;
 
-%Define initial state of network
-rod1 = Rod;
-rod2 = Rod;
+num_edges = F.m - 2;
+F.G = 2/(num_edges) * ones(num_edges, 1); %Uniform grid, in total length is 2.
 
-rod1.m = 32;
-rod1.G = linspace(0,1, rod1.m);
-rod1.A = [1963, 755, 755];
-rod1.K = [0.94, 1.23, 1.23];
+F.edges = zeros(num_edges, 4);
+%Define spatial edges
+F.edges(1:31, 1) = 1:31;
+F.edges(1:31, 2) = 2:32;
+F.edges(32:62, 1) = 33:63;
+F.edges(32:62, 2) = 34:64;
+%...and network edges (same as spatial)
+F.edges(1:31, 3) = 1:31;
+F.edges(1:31, 4) = 2:32;
+F.edges(32:62, 3) = 33:63;
+F.edges(32:62, 4) = 34:64;
 
-rod2.m = 32;
-rod2.G = linspace(0,1, rod2.m);
-rod2.A = [1963, 755, 755];
-rod2.K = [0.94, 1.23, 1.23];
+F.fixed_nodes = [1, 64];
+F.connected_nodes = [32, 33];
+F = F.apply_connections();
 
-rod1.phi = zeros(rod1.m, 3);
-rod1.R = zeros(rod1.m, 4);
+F.A = repmat([1963, 755, 755], num_edges, 1);
+F.K = repmat([0.94, 1.23, 1.23], num_edges, 1);
 
-rod1.phi(:, 1) = linspace(0, 1, 32).';
-rod1.R(:, 1) = 1;
+F.phi = zeros(F.m, 3);
+F.R = zeros(F.m, 4);
 
-rod2.phi = zeros(rod2.m, 3);
-rod2.R = zeros(rod2.m, 4);
+F.phi(1:32, 1) = linspace(0, 1, 32).';
+F.R(1:32, 1) = 1;
 
-rod2.phi(:, 1) = 1;
-%Add "bending" here!
-rod2.phi(:, 1) = linspace(1, 0.5, 32).';
-rod2.phi(:, 2) = linspace(0, 1, 32).';
+F.phi(33:64, 1) = linspace(1, 0.5, 32).';
+F.phi(33:64, 2) = linspace(0, 0.9, 32).';
+F.phi(33:64, 3) = linspace(0, 0.2, 32).';
 
-rod2.R(:, 1) = 1/sqrt(2);
-rod2.R(:, 4) = 1/sqrt(2); %Rotation 90 around z-axis
+F.R(33:64, 1) = 1/sqrt(2);
+F.R(33:64, 4) = 1/sqrt(2); %Rotation 90 around z-axis
 
-rod1.Us_pre = zeros(rod1.m, 3);
-rod1.Us_pre(:, 1) = 1;
+F.Us_pre = zeros(num_edges, 3); %One strain for each edge.
+F.Us_pre(:, 1) = 1;
 
-rod2.Us_pre = zeros(rod2.m, 3);
-rod2.Us_pre(:, 1) = 1;
+F.Rs_pre = zeros(num_edges, 3);
 
-rod1.Rs_pre = zeros(rod1.m, 3);
-rod2.Rs_pre = zeros(rod2.m, 3);
 
-F.rods = [rod1, rod2];
-
-%Draw initial rod
 draw_network(F);
+init_log = quat_log(F.R(32, :), F.R(33, :));
 
 %Define solver parameters
 prm = solver_param;
@@ -62,5 +57,13 @@ prm.allowed_failed_backtracks = 5;
 
 F = BasicSolver(F, prm);
 
-%Draw "solved" rod
-draw_network(F)
+after_log = quat_log(F.R(32, :), F.R(33, :));
+
+
+init_log
+after_log
+
+draw_network(F);
+
+rod1_len = approx_rod_len(F.phi(1:32, :))
+rod2_len = approx_rod_len(F.phi(33:64, :))
