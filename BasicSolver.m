@@ -28,7 +28,7 @@ function F = network_solver(F, params)
         gradR_len = 0;
         for i = 1:F.num_network_index
             gradphi_len = gradphi_len + norm(gradphi(i, :));
-            %WHY 1/2 here??
+            %WHY do I multiply by 1/2 here??
             gradR_len= gradR_len + 1/2 * norm(gradR(i, :));
         end
         fprintf("gradient lengths are phi: %d and R: %d\n", gradphi_len, gradR_len);
@@ -345,27 +345,18 @@ function L = disc_laplacian(F)
         L(network_right, network_right)= L(network_right, network_right) - 1/h^2;
     end
 
-    %Why?
+    %Without this the laplacian can be singular.
     for i = 1:size(F.fixed_nodes, 2)
         index = F.fixed_nodes(i);
         network_index = F.network_index(index);
         L(network_index, network_index) = 2 * L(network_index, network_index);
     end
 
-    %How to properly add connections between rods???
-    % for i = 1:size(F.connected_nodes, 1)
-    %     comb_row = zeros(1, F.m);
-    %     connected = F.connected_nodes(i, :);
-    %     %Add "implicit" edges
-    %     for l = 1:size(connected, 2)
-    %         L(connected(l), connected(l)) = 2 * L(connected(l), connected(l));
-    %     end
-    % end
-
     L = -L;
 end
 
-function L = disc_quat_laplacian(h, m, R)
+%Not working currently
+function L = disc_curvature_laplacian(h, m, R)
     %Define discrete Laplacian
     %ASSUME grid is uniform
     %"Unpack" gradient into one column.

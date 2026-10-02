@@ -11,11 +11,6 @@ F.edges(1:31, 1) = 1:31;
 F.edges(1:31, 2) = 2:32;
 F.edges(32:62, 1) = 33:63;
 F.edges(32:62, 2) = 34:64;
-%...and network edges (same as spatial)
-F.edges(1:31, 3) = 1:31;
-F.edges(1:31, 4) = 2:32;
-F.edges(32:62, 3) = 33:63;
-F.edges(32:62, 4) = 34:64;
 
 F.fixed_nodes = [1, 64];
 F.connected_nodes = [32, 33];

@@ -10,13 +10,6 @@ classdef FiberNetwork
         m {mustBeNumeric} %Total number of nodes
         phi {mustBeNumeric}
         R {mustBeNumeric}
-        %OBS: Each edge has four elements
-        %[spatial_left, spatial_right, network_right, network_left]
-        %The "spatial" part is used when computing energies and gradients
-        %but the results of computations are places as if the neighbors
-        %where the network left/right.
-        %This allows several nodes to be place on top of each other but have
-        %different orientations/frames.
         edges {mustBeNumeric}
 
         %Map indicies to the correct ones in the network (where nodes are
