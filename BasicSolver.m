@@ -2,7 +2,14 @@ function F = network_solver(F, params)
 
     J0 = J(F);    
 
+
     discrete_laplacian = disc_laplacian(F);
+    %Assume uniform grid to test and one rod
+
+    h = F.G(1); 
+    D_h = diag(ones(F.m, 1)) - diag(ones(F.m - 1, 1), -1);
+    D_h = 1/h*D_h(:, 1:end-1);
+    I = 1/h^2*eye(F.m, F.m);
 
     failed_backtracks = 0;
     %===== Outer loop =====
@@ -13,6 +20,9 @@ function F = network_solver(F, params)
  
         %Pre-condition with discrete laplacian
         gradphi = linsolve(discrete_laplacian, gradphi);
+        vel = velocites(F);
+        w = D_h*vel;
+        gradR = linsolve(discrete_laplacian, gradR - w);
 
         %Pre-conditioning R with Laplacian gives worse results,
         %what is the correct way to pre-condition it?
@@ -32,7 +42,7 @@ function F = network_solver(F, params)
             gradR_len= gradR_len + 1/2 * norm(gradR(i, :));
         end
         fprintf("gradient lengths are phi: %d and R: %d\n", gradphi_len, gradR_len);
-  
+ 
         fprintf("Energy is %d\n", J0);
         if gradR_len + gradphi_len < 10^(-15)
             break;
@@ -354,6 +364,23 @@ function L = disc_laplacian(F)
 
     L = -L;
 end
+
+
+function vel = velocites(F)
+    vel = zeros(size(F.edges, 1), 3);
+    for i = 1:size(F.edges, 1)
+        left = F.edges(i, 1);
+        right = F.edges(i, 2);
+        
+        R1 = F.R(left, :);
+        R2 = F.R(right, :);
+
+        logR = quat_log(R1, R2);
+
+        vel(i, :) = logR(1) * logR(2:4); %convert to tangent vector
+    end
+end
+
 
 %Not working currently
 function L = disc_curvature_laplacian(h, m, R)
