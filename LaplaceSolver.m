@@ -5,26 +5,29 @@
 %but good test problem.
 
 function F = laplace_solver(F, params)
-
-    J0 = J(F);    
-    
-    %h = F.G(1); 
-    %D_h = diag(ones(F.m, 1)) - diag(ones(F.m - 1, 1), -1);
-    %D_h = 1/h*D_h(:, 1:end-1);
-
-    disc_laplacian = laplacian(F);
-    
     %===== Outer loop =====
     for p = 1:params.iter_max
         fprintf("Iteration %d\n", p);
     
         gradR = grad_J(F);
-    
-        %vel = velocites(F);
-        %Dvel = D_h*vel;
-        gradR = linsolve(disc_laplacian, gradR);
+
+        %No precondition only scaling:
+        %gradR = F.G(1)^2 * gradR;
+
+        %Naive preconditioning:
+        naive_disc_laplacian = naive_laplacian(F);
+        %gradR = linsolve(naive_disc_laplacian, gradR);
        
+        %Actual laplacian
+        disc_laplacian = laplacian(F);
+        gradR = reshape(gradR,[],1);
+        gradR = linsolve(disc_laplacian, gradR);
+        gradR = reshape(gradR,[], 3);
+
+
+
         gradR = enforce_boudaries(F, gradR);
+        
     
         %Compute length of gradient
         gradR_len = 0;
@@ -34,14 +37,16 @@ function F = laplace_solver(F, params)
         end
         fprintf("gradient length is: %d\n",gradR_len);
     
-        fprintf("Energy is %d\n", J0);
-        if gradR_len < 10^(-15)
+        
+        if gradR_len < 10^(-14)
             break;
         end
     
         %No backtracking loop (I guess just pure Richardson iterations).
         F = step(F, -gradR, params.alpha);
         J1 = J(F); 
+
+        fprintf("Energy is %d\n", J1);
     end
 end
 
@@ -51,7 +56,6 @@ function J = J(F)
     for i = 1:size(F.edges, 1)
         left = F.edges(i, 1);
         right = F.edges(i, 2);
-        h = F.G(i);
     
         R1 = F.R(left, :);
         R2 = F.R(right, :);
@@ -112,6 +116,70 @@ function F = step(F, gradR, steplength)
 end
 
 function L = laplacian(F)
+    %Need an element for each direction.
+    n_net = F.num_network_index;
+    L = zeros(3 * n_net);
+
+    for i = 1:size(F.edges, 1)
+        left = F.edges(i, 1);
+        right = F.edges(i, 2);
+    
+        n_left  = F.network_index(left);
+        n_right = F.network_index(right);
+    
+        h = F.G(i);
+
+        R1 = F.R(left, :);
+        R2 = F.R(right, :);
+        
+        logR = quat_log(R1, R2);
+        L_i = logR(1) * logR(2:4); %Convert to tangent vector 
+        
+        L_norm = norm(L_i);
+        %Guard clause, if true the Laplacian is probably singular.
+        if L_norm == 0
+            %Compute limit case of the below, recover naive laplacian.
+            for j = 0:2
+                L(n_right + n_net*j, n_right + n_net*j) = L(n_right + n_net*j, n_right + n_net*j)  + 1/h^2;
+                L(n_left  + n_net*j, n_left  + n_net*j) = L(n_left  + n_net*j, n_left  + n_net*j)  + 1/h^2;
+                L(n_left  + n_net*j, n_right + n_net*j) = L(n_left  + n_net*j, n_right + n_net*j)  - 1/h^2;
+                L(n_right + n_net*j, n_left  + n_net*j) = L(n_right + n_net*j, n_left  + n_net*j)  + 1/h^2;
+            end
+        else 
+            K = eye(3) - ((L_i/h).'*(L_i/h))/(L_norm/h)^2;
+            S = (L_i/h).'*(L_i/h)/(L_norm/h)^2;
+    
+            b = L_norm/(2*sqrt(2));
+            s = sin(b);
+            c = cos(b);
+    
+            main =  K/(h*s^2) * b/2 * (b + s*c) + S/h;
+            side = -K/(h*s^2) * b/2 * (s + b*c) - S/h;
+            
+            
+            for j = 0:2
+                for l = 0:2
+                    L(n_right + n_net*j, n_right + n_net*l) = L(n_right + n_net*j, n_right + n_net*l)  + main(j+1, l+1);
+                    L(n_left  + n_net*j, n_left  + n_net*l) = L(n_left  + n_net*j, n_left  + n_net*l)  + main(j+1, l+1);
+                    L(n_left  + n_net*j, n_right + n_net*l) = L(n_left  + n_net*j, n_right + n_net*l)  + side(j+1, l+1);
+                    L(n_right + n_net*j, n_left  + n_net*l) = L(n_right + n_net*j, n_left  + n_net*l)  + side(j+1, l+1);
+                end
+            end
+        end
+    end
+
+    %Ad hoc method for fixed nodes.
+    for i = 1:size(F.fixed_nodes, 2)
+        index = F.fixed_nodes(i);
+        network_index = F.network_index(index);
+        L(network_index, network_index) = 2 * L(network_index, network_index);
+        L(network_index + n_net, network_index + n_net) = 2 * L(network_index + n_net, network_index + n_net);
+        L(network_index + 2*n_net, network_index + 2*n_net) = 2 * L(network_index + 2*n_net, network_index + 2*n_net);
+    end
+end
+
+
+function L = naive_laplacian(F)
     L = zeros(F.num_network_index);
     
     for i = 1:size(F.edges, 1)
@@ -123,10 +191,10 @@ function L = laplacian(F)
     
         h = F.G(i);
     
-        L(network_left, network_right) = L(network_left, network_right)  + 1/h^2;
-        L(network_right, network_left) = L(network_right, network_left)  + 1/h^2;
-        L(network_left, network_left)  = L(network_left, network_left)   - 1/h^2;
-        L(network_right, network_right)= L(network_right, network_right) - 1/h^2;
+        L(network_left, network_right) = L(network_left, network_right)  + 1/h;
+        L(network_right, network_left) = L(network_right, network_left)  + 1/h;
+        L(network_left, network_left)  = L(network_left, network_left)   - 1/h;
+        L(network_right, network_right)= L(network_right, network_right) - 1/h;
     end
     
     %Without this the laplacian can be singular.
@@ -139,26 +207,9 @@ function L = laplacian(F)
     L = -L;
 end
 
-
-function vel = velocites(F)
-    vel = zeros(size(F.edges, 1), 3);
-    for i = 1:size(F.edges, 1)
-        left = F.edges(i, 1);
-        right = F.edges(i, 2);
-    
-        R1 = F.R(left, :);
-        R2 = F.R(right, :);
-    
-        logR = quat_log(R1, R2);
-    
-        vel(i, :) = logR(1) * logR(2:4); %convert to tangent vector
-    end
-end
-
-
 F = FiberNetwork;
 
-F.m = 16;
+F.m = 256;
 F.G = 1/(F.m - 1) * ones(F.m - 1, 1); %Uniform grid
 
 F.edges = zeros(F.m - 1, 2);
@@ -175,17 +226,16 @@ F.R = zeros(F.m, 4);
 
 %Phi goes forward for visualization purposes, we only solve over R!!
 F.phi(:, 1) = linspace(0, 1, F.m).';
-F.R(:, 1) = 1;
+%F.R(:, 1) = 1;
 
-% a = 0; 
-% b = pi/2; 
-% angle = linspace(a, b, F.m)/2;
-% F.R(:, 1) = cos(angle);
-% F.R(:, 4) = sin(angle);
+a = 0; 
+b = pi/2; 
+angle = linspace(a, b, F.m)/2;
+F.R(:, 1) = cos(angle);
+F.R(:, 3) = sin(angle);
+
 %Hard code R
 F.R(1, :) = [1, 0, 0, 0];
-%F.R(2, :) = [1, 0, 0, 0];
-%F.R(5, :) = [cos(pi/4), 0, sin(pi/4), 0];
 F.R(F.m, :) = [cos(pi/4), 0, 0, sin(pi/4)];
 
 draw_network(F);
@@ -196,7 +246,7 @@ J(F)
 prm = solver_param;
 prm.backtracking_max = 100;
 prm.beta = 0.9;
-prm.alpha = 10;
+prm.alpha = 2;
 prm.sigma = 1e-4;
 prm.iter_max = 1000;
 prm.allowed_failed_backtracks = 5;
