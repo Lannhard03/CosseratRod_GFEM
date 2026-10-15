@@ -5,7 +5,7 @@ classdef FiberNetwork
         fixed_nodes {mustBeNumeric}
 
         %Each row must be sorted in increasing order
-        connected_nodes {mustBeNumeric}
+        connected_nodes
 
         m {mustBeNumeric} %Total number of nodes
         phi {mustBeNumeric}
@@ -29,17 +29,37 @@ classdef FiberNetwork
 
     methods
         function F = apply_connections(F)
-            %Wrong for more connected groups!!!
-            total_connections = size(F.connected_nodes, 2);
-            connected_groups = size(F.connected_nodes, 1);
-            F.num_network_index = F.m - total_connections + connected_groups;
+            num_groups = size(F.connected_nodes, 2);
+            total_connected = 0;
+            for i = 1:num_groups
+                total_connected = total_connected + size(F.connected_nodes{i}, 2);
+            end
+
+            num_fixed = size(F.fixed_nodes, 2);
+            
+            %Remove the number of indicies not needed.
+            F.num_network_index = F.m - (total_connected - num_groups) - num_fixed;
 
             F.network_index = 1:F.m;
-            for i = 1:size(F.connected_nodes, 1)
-                connected = F.connected_nodes(i, :);
-                for j = 2:size(connected, 2)
-                    F.network_index(connected(j):end) = F.network_index(connected(j):end) - 1;
-                    F.network_index(connected(j)) =  F.network_index(connected(1));
+            %Compensate indicies after a connected node index
+            for i = 1:num_groups
+                group = F.connected_nodes{i};
+                for j = 2:size(group, 2)
+                    F.network_index(group(j):end) = F.network_index(group(j):end) - 1;
+                end
+            end
+
+            %Compensate indicies after a fixed node index
+            for i = 1:num_fixed
+                F.network_index(F.fixed_nodes(i):end) = F.network_index(F.fixed_nodes(i):end) - 1;
+                F.network_index(F.fixed_nodes(i)) = 0;
+            end
+
+            %Set correct index for each connected group
+            for i = 1:num_groups
+                group = F.connected_nodes{i};
+                for j = 2:size(group, 2)
+                    F.network_index(group(j)) =  F.network_index(group(1));
                 end
             end
         end

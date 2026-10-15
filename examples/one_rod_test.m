@@ -8,7 +8,7 @@ F.edges(:, 1) = 1:31;
 F.edges(:, 2) = 2:32;
 
 F.fixed_nodes = [1, 32];
-F.connected_nodes = [];
+F.connected_nodes = {};
 
 F = F.apply_connections();
 
@@ -41,7 +41,7 @@ draw_network(F);
 prm = solver_param;
 prm.backtracking_max = 1000;
 prm.beta = 0.9;
-prm.alpha = 0.1;
+prm.alpha = 2;
 prm.sigma = 1e-4;
 prm.iter_max = 1000;
 prm.allowed_failed_backtracks = 5;

@@ -6,23 +6,15 @@ function F = network_solver(F, params)
     discrete_laplacian = disc_laplacian(F);
     %Assume uniform grid to test and one rod
 
-    h = F.G(1); 
-    D_h = diag(ones(F.m, 1)) - diag(ones(F.m - 1, 1), -1);
-    D_h = 1/h*D_h(:, 1:end-1);
-    I = 1/h^2*eye(F.m, F.m);
-
     failed_backtracks = 0;
     %===== Outer loop =====
     for p = 1:params.iter_max
-        fprintf("Iteration %d\n", p);
-
         [gradphi, gradR] = grad_J(F);
  
         %Pre-condition with discrete laplacian
         gradphi = linsolve(discrete_laplacian, gradphi);
-        vel = velocites(F);
-        w = D_h*vel;
-        gradR = linsolve(discrete_laplacian, gradR - w);
+
+        %gradR = linsolve(discrete_laplacian, gradR);
 
         %Pre-conditioning R with Laplacian gives worse results,
         %what is the correct way to pre-condition it?
@@ -31,20 +23,20 @@ function F = network_solver(F, params)
         %gradR_col = linsolve(discrete_quat_laplacian, gradR_col);
         %gradR = reshape(gradR_col, 3, []).';
 
-        [gradphi,gradR] = enforce_boudaries(F,gradphi,gradR);
+        %[gradphi,gradR] = enforce_boudaries(F,gradphi,gradR);
     
         %Compute length of gradient
         gradphi_len = 0;
         gradR_len = 0;
         for i = 1:F.num_network_index
-            gradphi_len = gradphi_len + norm(gradphi(i, :));
-            %WHY do I multiply by 1/2 here??
-            gradR_len= gradR_len + 1/2 * norm(gradR(i, :));
+            gradphi_len = gradphi_len + norm(gradphi(i, :))^2;
+            %GradR is in "vector form" not matrix, so we need
+            %to scale the inner product by 1/2.
+            gradR_len= gradR_len + 1/2 * norm(gradR(i, :))^2;
         end
-        fprintf("gradient lengths are phi: %d and R: %d\n", gradphi_len, gradR_len);
- 
-        fprintf("Energy is %d\n", J0);
-        if gradR_len + gradphi_len < 10^(-15)
+        
+        grad_len = sqrt(gradR_len + gradphi_len);
+        if grad_len < 10^(-15)
             break;
         end
     
@@ -60,8 +52,8 @@ function F = network_solver(F, params)
             F = step(F, -gradphi, -gradR, steplength);
             J1 = J(F); 
 
-            %Update if new energy is lower
-            if (J0 - J1) >= params.sigma*steplength*(gradphi_len + gradR_len)
+            %Update if new energy satisfies Armijo backtracking criterion
+            if (J0 - J1) >= params.sigma * steplength * grad_len^2
                 break;
             else
                 %Reset solution to previous one.
@@ -70,8 +62,6 @@ function F = network_solver(F, params)
             end
         end
     
-        fprintf("Backtracking took %d iterations \n", l);
-    
         if l == params.backtracking_max
             fprintf("Gradient descent found no better solution iteration %d :(\n", p);
             failed_backtracks = failed_backtracks + 1;
@@ -79,21 +69,37 @@ function F = network_solver(F, params)
             J0 = J1;
             failed_backtracks = 0;
         end
-
         if failed_backtracks > params.allowed_failed_backtracks
             break;
         end
+        
+        %Print info every 10 iterations
+        if mod(p, 10) == 0
+            fprintf("Iteration %d\n", p);
+            fprintf("Energy is %d\n", J0);
+            fprintf("gradient lengths are phi: %d and R: %d\n", ...
+                sqrt(gradphi_len), sqrt(gradR_len));
+            fprintf("Backtracking took %d iterations \n", l);
+        end
     end
 end
+
 
 function F = step(F, gradphi, gradR, steplength)    
     gradR = steplength*gradR;
 
     for l = 1:F.m
         index = F.network_index(l);
+        
+        %Do not update fixed nodes
+        if index == 0
+            continue;
+        end
+
         %Phi step
         F.phi(l, :) = F.phi(l, :) + steplength * gradphi(index, :);
 
+        %R step
         angle = norm(gradR(index, :));
         if angle ~= 0
             axis = gradR(index, :) / angle;
@@ -210,7 +216,7 @@ function approx = dv_W(A, K, j, k, h, s, phi_p, R1, R2, logR, Us_pre, Rs_pre)
     
     dv = dv_Rs(j, k, h, R1, R2);
     
-    approx = approx + dot(scaled_diff, dv);
+    approx = approx + 4*dot(scaled_diff, dv);
 end
 
 function approx = dw_W(A, j, k, h, s, phi_p, R1, logR, Us_pre)
@@ -299,44 +305,46 @@ function [gradphi, gradR] = grad_J(F)
             %===dw_W derivatives
             %Compute change at the left and right endpoints, 
             %when w changes in j direction at left endpoint
-            dw_left_left  = dw_W(F.A(i, :), j, 1, h, 0, phi_p, R1, logR, Us_pre);
-            dw_right_left = dw_W(F.A(i, :), j, 1, h, 1, phi_p, R1, logR, Us_pre);
+            if network_left > 0
+                dw_left_left  = dw_W(F.A(i, :), j, 1, h, 0, phi_p, R1, logR, Us_pre);
+                dw_right_left = dw_W(F.A(i, :), j, 1, h, 1, phi_p, R1, logR, Us_pre);
 
-            dw_total = h/2*(dw_left_left + dw_right_left);
-            gradphi(network_left, j) = gradphi(network_left, j) + dw_total; 
+                dw_total = h/2*(dw_left_left + dw_right_left);
+                gradphi(network_left, j) = gradphi(network_left, j) + dw_total; 
+            end
+
                 
             %Compute change at the left and right endpoints, 
             %when w changes in j direction at right endpoint
-            dw_left_right  = dw_W(F.A(i, :), j, 2, h, 0, phi_p, R1, logR, Us_pre);
-            dw_right_right = dw_W(F.A(i, :), j, 2, h, 1, phi_p, R1, logR, Us_pre);
+            if network_right > 0
+                dw_left_right  = dw_W(F.A(i, :), j, 2, h, 0, phi_p, R1, logR, Us_pre);
+                dw_right_right = dw_W(F.A(i, :), j, 2, h, 1, phi_p, R1, logR, Us_pre);
 
-            dw_total = h/2*(dw_left_right + dw_right_right);
-            gradphi(network_right, j) = gradphi(network_right, j) + dw_total; 
+                dw_total = h/2*(dw_left_right + dw_right_right);
+                gradphi(network_right, j) = gradphi(network_right, j) + dw_total; 
+            end
+
 
             %===dv_W derivatives
-            dv_left_left  = dv_W(F.A(i, :), F.K(i, :), j, 1, h, 0, phi_p, R1, R2, logR, Us_pre, Rs_pre);
-            dv_right_left = dv_W(F.A(i, :), F.K(i, :), j, 1, h, 1, phi_p, R1, R2, logR, Us_pre, Rs_pre);
+            if network_left > 0
+                dv_left_left  = dv_W(F.A(i, :), F.K(i, :), j, 1, h, 0, phi_p, R1, R2, logR, Us_pre, Rs_pre);
+                dv_right_left = dv_W(F.A(i, :), F.K(i, :), j, 1, h, 1, phi_p, R1, R2, logR, Us_pre, Rs_pre);
+    
+                total_dv = h/2*(dv_left_left + dv_right_left);
+                gradR(network_left, j) = gradR(network_left, j) + total_dv;
+            end
 
-            total_dv = h/2*(dv_left_left + dv_right_left);
-            gradR(network_left, j) = gradR(network_left, j) + total_dv;
-
-            dv_left_right  = dv_W(F.A(i, :), F.K(i, :), j, 2, h, 0, phi_p, R1, R2, logR, Us_pre, Rs_pre);
-            dv_right_right = dv_W(F.A(i, :), F.K(i, :), j, 2, h, 1, phi_p, R1, R2, logR, Us_pre, Rs_pre);
-
-            total_dv = h/2*(dv_left_right + dv_right_right);
-            gradR(network_right, j) = gradR(network_right, j) + total_dv;
+            if network_right > 0
+                dv_left_right  = dv_W(F.A(i, :), F.K(i, :), j, 2, h, 0, phi_p, R1, R2, logR, Us_pre, Rs_pre);
+                dv_right_right = dv_W(F.A(i, :), F.K(i, :), j, 2, h, 1, phi_p, R1, R2, logR, Us_pre, Rs_pre);
+    
+                total_dv = h/2*(dv_left_right + dv_right_right);
+                gradR(network_right, j) = gradR(network_right, j) + total_dv;
+            end
         end
     end 
 end
     
-function [gradphi,gradR] = enforce_boudaries(F, gradphi, gradR)
-    for i = 1:size(F.fixed_nodes, 2)
-        index = F.network_index(F.fixed_nodes(i));
-        gradphi(index, :) = zeros(1, 3);
-        gradR(index, :) = zeros(1, 3);
-    end
-end
-
 function L = disc_laplacian(F)
     L = zeros(F.num_network_index);
 
@@ -348,99 +356,26 @@ function L = disc_laplacian(F)
         network_right = F.network_index(right);
 
         h = F.G(i);
+        
+        %Cases: 
+        % Both left and right fixed
+        % Left fixed
+        % Right fixed
+        % No fixed
+        if network_left == 0 && network_right == 0
+            continue;
+        elseif network_left == 0 %In this case network_right != 0
+            L(network_right, network_right)= L(network_right, network_right) - 1/h;
+        elseif network_right == 0 %in this case network_left != 0
+            L(network_left, network_left)  = L(network_left, network_left)   - 1/h;
+        else
+            L(network_left, network_left)  = L(network_left, network_left)   - 1/h;
+            L(network_right, network_right)= L(network_right, network_right) - 1/h;
 
-        L(network_left, network_right) = L(network_left, network_right)  + 1/h^2;
-        L(network_right, network_left) = L(network_right, network_left)  + 1/h^2;
-        L(network_left, network_left)  = L(network_left, network_left)   - 1/h^2;
-        L(network_right, network_right)= L(network_right, network_right) - 1/h^2;
-    end
-
-    %Without this the laplacian can be singular.
-    for i = 1:size(F.fixed_nodes, 2)
-        index = F.fixed_nodes(i);
-        network_index = F.network_index(index);
-        L(network_index, network_index) = 2 * L(network_index, network_index);
+            L(network_left, network_right) = L(network_left, network_right)  + 1/h;
+            L(network_right, network_left) = L(network_right, network_left)  + 1/h;
+        end
     end
 
     L = -L;
 end
-
-
-function vel = velocites(F)
-    vel = zeros(size(F.edges, 1), 3);
-    for i = 1:size(F.edges, 1)
-        left = F.edges(i, 1);
-        right = F.edges(i, 2);
-        
-        R1 = F.R(left, :);
-        R2 = F.R(right, :);
-
-        logR = quat_log(R1, R2);
-
-        vel(i, :) = logR(1) * logR(2:4); %convert to tangent vector
-    end
-end
-
-
-%Not working currently
-function L = disc_curvature_laplacian(h, m, R)
-    %Define discrete Laplacian
-    %ASSUME grid is uniform
-    %"Unpack" gradient into one column.
-    L = zeros(3*m);
-    
-
-    %============= Compute block diagonal matrix action
-    %============= corresponding with cross product of velocity of curve.
-    %============= And an approximate action of the derivative.
-    S = zeros(3*m);
-    S_p = zeros(3*m);
-    for i = 0:(m-1)
-        if i == 0 || i== m-1
-            angle_axis = quat2axisangle(R(i+1, :));
-            angle_axis_p = angle_axis;
-        else
-            %angle_axis = 1/2*(quat2axisangle(R(i, :)) + quat2axisangle(R(i+1, :)));
-            angle_axis = quat2axisangle(R(i+1, :));
-            angle_axis_p = quat2axisangle(R(i+1, :)) - quat2axisangle(R(i, :));
-        end
-
-        %Index into 3x3 block diagonal
-        S((3*i+1):(3*i+3), (3*i+1):(3*i+3)) = angle_axis(1)*axis2matrix(angle_axis(2:4));
-        S_p((3*i+1):(3*i+3), (3*i+1):(3*i+3)) = angle_axis_p(1)*axis2matrix(angle_axis_p(2:4));
-    end
-
-    %===========Add cross product action
-    L = L + S;
-
-    %============Add approx 1st deriv
-    off_diag = 1/2*ones(3*m-3,1);
-    L = L + 2*diag(off_diag, 3);
-    L = L - 2*diag(off_diag, -3);
-
-    %Fix start and end... (Do this?)
-    %L(1:3, 1:3) = L(1:3, 1:3) - 2*eye(3);
-    %L(1:3, 4:6) = L(1:3, 4:6) + eye(3);
-
-    %L((end-2):end, (end-2):end) = L((end-2):end, (end-2):end) + 2*eye(3);
-    %L((end-2):end, (end-5):(end-3)) = L((end-2):end, (end-5):(end-3)) - eye(3);
-
-    %============Act by cross-product
-    L = S*L;
-
-    %============Add action by derivative of curve
-    L = L + S_p;
-
-    %============Add approx 2nd deriv (OBS. bad at start and end...)
-    main_diag = -2*ones(3*m,1);
-    off_diag = 1*ones(3*m-3,1);
-    L = L + diag(main_diag);
-    L = L + diag(off_diag, 3);
-    L = L + diag(off_diag, -3);
-
-    %============Multiply by scale factor 1/h^2 and negate.
-    L = -1*L/(h*h);
-end
-
-
-

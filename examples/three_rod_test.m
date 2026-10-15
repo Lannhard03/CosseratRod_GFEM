@@ -15,7 +15,7 @@ F.edges(63:93, 2) = 66:96;
 
 F.fixed_nodes = [1, 64, 96];
 
-F.connected_nodes = [32, 33, 65];
+F.connected_nodes = {[32, 33, 65]};
 F = F.apply_connections();
 
 F.A = repmat([1963, 755, 755], num_edges, 1);

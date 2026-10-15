@@ -29,7 +29,7 @@ function [F, energy_hist] = laplace_solver(F, params)
 
 
 
-        gradR = enforce_boudaries(F, gradR);
+        %gradR = enforce_boudaries(F, gradR);
         
     
         %Compute length of gradient
@@ -57,6 +57,7 @@ end
 function J = J(F)
     J = 0;
     for i = 1:size(F.edges, 1)
+
         left = F.edges(i, 1);
         right = F.edges(i, 2);
 
@@ -90,17 +91,13 @@ function gradR = grad_J(F)
 
         logR = quat_log(R1, R2);
         L_i = logR(1) * logR(2:4); %Convert to tangent vector 
-
-        gradR(network_left, :)  = gradR(network_left, :)  - L_i/h;
-        gradR(network_right, :) = gradR(network_right, :) + L_i/h;
-    end
-end
-
-
-function gradR = enforce_boudaries(F, gradR)
-    for i = 1:size(F.fixed_nodes, 2)
-        index = F.network_index(F.fixed_nodes(i));
-        gradR(index, :) = zeros(1, 3);
+        
+        if network_left > 0
+            gradR(network_left, :)  = gradR(network_left, :)  - L_i/h;
+        end
+        if network_right > 0
+            gradR(network_right, :) = gradR(network_right, :) + L_i/h;
+        end
     end
 end
 
@@ -110,6 +107,10 @@ function F = step(F, gradR, steplength)
     
     for l = 1:F.m
         index = F.network_index(l);
+        %Do not update fixed nodes
+        if index == 0
+            continue;
+        end
     
         angle = norm(gradR(index, :));
         if angle ~= 0
@@ -141,16 +142,25 @@ function L = laplacian(F)
         L_i = logR(1) * logR(2:4); %Convert to tangent vector 
         
         L_norm = norm(L_i);
-        %Guard clause, if true the Laplacian is probably singular.
         if L_norm == 0
-            %Compute limit case of the below, recover naive laplacian.
+            %Limit case of the below recovers naive laplacian.
             for j = 0:2
-                L(n_right + n_net*j, n_right + n_net*j) = L(n_right + n_net*j, n_right + n_net*j)  + 1/h^2;
-                L(n_left  + n_net*j, n_left  + n_net*j) = L(n_left  + n_net*j, n_left  + n_net*j)  + 1/h^2;
-                L(n_left  + n_net*j, n_right + n_net*j) = L(n_left  + n_net*j, n_right + n_net*j)  - 1/h^2;
-                L(n_right + n_net*j, n_left  + n_net*j) = L(n_right + n_net*j, n_left  + n_net*j)  + 1/h^2;
+                if n_left == 0 && n_right == 0
+                    continue;
+                elseif n_left == 0 %In this case network_right != 0
+                     L(n_right + n_net*j, n_right + n_net*j) = L(n_right + n_net*j, n_right + n_net*j)  - 1/h;
+                elseif n_right == 0 %in this case network_left != 0
+                    L(n_left  + n_net*j, n_left  + n_net*j) = L(n_left  + n_net*j, n_left  + n_net*j)  - 1/h;
+                else
+                    L(n_right + n_net*j, n_right + n_net*j) = L(n_right + n_net*j, n_right + n_net*j)  - 1/h;
+                    L(n_left  + n_net*j, n_left  + n_net*j) = L(n_left  + n_net*j, n_left  + n_net*j)  - 1/h;
+
+                    L(n_left  + n_net*j, n_right + n_net*j) = L(n_left  + n_net*j, n_right + n_net*j)  + 1/h;
+                    L(n_right + n_net*j, n_left  + n_net*j) = L(n_right + n_net*j, n_left  + n_net*j)  + 1/h;
+                end
             end
         else 
+
             K = eye(3) - ((L_i/h).'*(L_i/h))/(L_norm/h)^2;
             S = (L_i/h).'*(L_i/h)/(L_norm/h)^2;
     
@@ -164,22 +174,22 @@ function L = laplacian(F)
             
             for j = 0:2
                 for l = 0:2
-                    L(n_right + n_net*j, n_right + n_net*l) = L(n_right + n_net*j, n_right + n_net*l)  + main(j+1, l+1);
-                    L(n_left  + n_net*j, n_left  + n_net*l) = L(n_left  + n_net*j, n_left  + n_net*l)  + main(j+1, l+1);
-                    L(n_left  + n_net*j, n_right + n_net*l) = L(n_left  + n_net*j, n_right + n_net*l)  + side(j+1, l+1);
-                    L(n_right + n_net*j, n_left  + n_net*l) = L(n_right + n_net*j, n_left  + n_net*l)  + side(j+1, l+1);
+                    if n_left == 0 && n_right == 0
+                        continue;
+                    elseif n_left == 0 %In this case network_right != 0
+                        L(n_right + n_net*j, n_right + n_net*j) = L(n_right + n_net*j, n_right + n_net*j)  + main(j+1, l+1);
+                    elseif n_right == 0 %in this case network_left != 0
+                        L(n_left  + n_net*j, n_left  + n_net*j) = L(n_left  + n_net*j, n_left  + n_net*j)  + main(j+1, l+1);
+                    else
+                        L(n_right + n_net*j, n_right + n_net*j) = L(n_right + n_net*j, n_right + n_net*j)  + main(j+1, l+1);
+                        L(n_left  + n_net*j, n_left  + n_net*j) = L(n_left  + n_net*j, n_left  + n_net*j)  + main(j+1, l+1);
+
+                        L(n_left  + n_net*j, n_right + n_net*j) = L(n_left  + n_net*j, n_right + n_net*j)  + side(j+1, l+1);
+                        L(n_right + n_net*j, n_left  + n_net*j) = L(n_right + n_net*j, n_left  + n_net*j)  + side(j+1, l+1);
+                    end
                 end
             end
         end
-    end
-
-    %Ad hoc method for fixed nodes.
-    for i = 1:size(F.fixed_nodes, 2)
-        index = F.fixed_nodes(i);
-        network_index = F.network_index(index);
-        L(network_index, network_index) = 2 * L(network_index, network_index);
-        L(network_index + n_net, network_index + n_net) = 2 * L(network_index + n_net, network_index + n_net);
-        L(network_index + 2*n_net, network_index + 2*n_net) = 2 * L(network_index + 2*n_net, network_index + 2*n_net);
     end
 end
 
@@ -196,79 +206,20 @@ function L = naive_laplacian(F)
     
         h = F.G(i);
     
-        L(network_left, network_right) = L(network_left, network_right)  + 1/h;
-        L(network_right, network_left) = L(network_right, network_left)  + 1/h;
-        L(network_left, network_left)  = L(network_left, network_left)   - 1/h;
-        L(network_right, network_right)= L(network_right, network_right) - 1/h;
-    end
-    
-    %Without this the laplacian can be singular.
-    for i = 1:size(F.fixed_nodes, 2)
-        index = F.fixed_nodes(i);
-        network_index = F.network_index(index);
-        L(network_index, network_index) = 2 * L(network_index, network_index);
+        if network_left == 0 && network_right == 0
+            continue;
+        elseif network_left == 0 %In this case network_right != 0
+            L(network_right, network_right)= L(network_right, network_right) - 1/h;
+        elseif network_right == 0 %in this case network_left != 0
+            L(network_left, network_left)  = L(network_left, network_left)   - 1/h;
+        else
+            L(network_left, network_left)  = L(network_left, network_left)   - 1/h;
+            L(network_right, network_right)= L(network_right, network_right) - 1/h;
+
+            L(network_left, network_right) = L(network_left, network_right)  + 1/h;
+            L(network_right, network_left) = L(network_right, network_left)  + 1/h;
+        end
     end
     
     L = -L;
 end
-
-function F = test_network(m)
-    F = FiberNetwork;
-    
-    F.m = m;
-    F.G = 1/(F.m - 1) * ones(F.m - 1, 1); %Uniform grid
-    
-    F.edges = zeros(F.m - 1, 2);
-    F.edges(:, 1) = 1:(F.m - 1);
-    F.edges(:, 2) = 2:F.m;
-    
-    F.fixed_nodes = [1, F.m];
-    F.connected_nodes = [];
-    
-    F = F.apply_connections();
-    
-    F.phi = zeros(F.m, 3);
-    F.R = zeros(F.m, 4);
-    
-    %Phi goes forward for visualization purposes, we only solve over R!!
-    F.phi(:, 1) = linspace(0, 1, F.m).';
-    %F.R(:, 1) = 1;
-    
-    a = 0; 
-    b = pi/2; 
-    angle = linspace(a, b, F.m)/2;
-    F.R(:, 1) = cos(angle);
-    F.R(:, 3) = sin(angle);
-    
-    %Hard code R
-    F.R(1, :) = [1, 0, 0, 0];
-    F.R(F.m, :) = [cos(pi/4), 0, 0, sin(pi/4)];
-
-end
-
-%Define solver parameters
-prm = solver_param;
-prm.backtracking_max = 100;
-prm.beta = 0.9;
-prm.alpha = 2.0;
-prm.sigma = 1e-4;
-prm.iter_max = 1000;
-prm.allowed_failed_backtracks = 5;
-
-%F = test_network(256);
-%draw_network(F);
-
-energy_hist = zeros(4, prm.iter_max);
-m = [16, 32, 64, 128, 256];
-for i = 1:5
-    F = test_network(m(i));
-    [F, energy_hist(i, :)] = laplace_solver(F, prm);
-end
-
-
-plot(1:prm.iter_max, energy_hist)
-yscale log
-
-%[F, energy_hist] = laplace_solver(F, prm);
-
-draw_network(F);
