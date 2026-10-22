@@ -48,6 +48,12 @@ for i = 1:5
     [F, energy_hist(i, :)] = LaplaceSolver(F, prm);
 end
 
+energies = energy_hist(5, :);
+num = sum(energies ~= 0);
+final = energies(num);
+diff = energies(1:num) - final;
+convergence_rate = diff(2:num) ./ diff(1:(num-1))
+
 
 plot(1:prm.iter_max, energy_hist)
 yscale log

@@ -2,8 +2,7 @@ function F = network_solver(F, params)
 
     J0 = J(F);    
 
-
-    discrete_laplacian = disc_laplacian(F);
+    laplacian = naive_laplacian(F);
     %Assume uniform grid to test and one rod
 
     failed_backtracks = 0;
@@ -12,18 +11,17 @@ function F = network_solver(F, params)
         [gradphi, gradR] = grad_J(F);
  
         %Pre-condition with discrete laplacian
-        gradphi = linsolve(discrete_laplacian, gradphi);
-
-        %gradR = linsolve(discrete_laplacian, gradR);
+        gradphi = linsolve(-laplacian, gradphi);
+        gradR = linsolve(-laplacian, gradR);
 
         %Pre-conditioning R with Laplacian gives worse results,
         %what is the correct way to pre-condition it?
-        %discrete_quat_laplacian = disc_quat_laplacian(h, m_tot, rods(1).R);
-        %gradR_col = reshape(gradR.', [], 1);
-        %gradR_col = linsolve(discrete_quat_laplacian, gradR_col);
-        %gradR = reshape(gradR_col, 3, []).';
 
-        %[gradphi,gradR] = enforce_boudaries(F,gradphi,gradR);
+        %curve_laplacian = curved_laplacian(F);
+        %gradR = reshape(gradR, [], 1);
+        %gradR = linsolve(-curve_laplacian, gradR);
+        %gradR = reshape(gradR, [], 3);
+
     
         %Compute length of gradient
         gradphi_len = 0;
@@ -109,6 +107,7 @@ function F = step(F, gradphi, gradR, steplength)
     end
 end
 
+
 function deriv = dv_Rs(j, k, h, R1, R2)
     dir = zeros(1,3);
     if k == 1
@@ -172,7 +171,6 @@ function deriv = dw_Us(j, k, h, s, R1, logR)
     %Take conjugate, then swap back
     R1(2:4) = -R1(2:4);
     dir = rotate_quat(dir, R1);
-    R1(2:4) = -R1(2:4);
 
     %scale rotation and reverse direction
     deriv = rotate_axisangle(dir, -2*s*logR(1), logR(2:4));
@@ -343,39 +341,4 @@ function [gradphi, gradR] = grad_J(F)
             end
         end
     end 
-end
-    
-function L = disc_laplacian(F)
-    L = zeros(F.num_network_index);
-
-    for i = 1:size(F.edges, 1)
-        left = F.edges(i, 1);
-        right = F.edges(i, 2);
-
-        network_left  = F.network_index(left);
-        network_right = F.network_index(right);
-
-        h = F.G(i);
-        
-        %Cases: 
-        % Both left and right fixed
-        % Left fixed
-        % Right fixed
-        % No fixed
-        if network_left == 0 && network_right == 0
-            continue;
-        elseif network_left == 0 %In this case network_right != 0
-            L(network_right, network_right)= L(network_right, network_right) - 1/h;
-        elseif network_right == 0 %in this case network_left != 0
-            L(network_left, network_left)  = L(network_left, network_left)   - 1/h;
-        else
-            L(network_left, network_left)  = L(network_left, network_left)   - 1/h;
-            L(network_right, network_right)= L(network_right, network_right) - 1/h;
-
-            L(network_left, network_right) = L(network_left, network_right)  + 1/h;
-            L(network_right, network_left) = L(network_right, network_left)  + 1/h;
-        end
-    end
-
-    L = -L;
 end

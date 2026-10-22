@@ -6,4 +6,5 @@ function axisangle = quat_log(R1, R2)
     %R1(2:4) = -R1(2:4); Would be neccesary if matlab didn't copy..
     
     axisangle = quat2axisangle(axisangle);
+    %axisangle(1) = axisangle(1)/sqrt(2);
 end
