@@ -23,8 +23,8 @@ classdef FiberNetwork
         K {mustBeNumeric} 
 
         %Pre strain for each edge
-        Us_pre {mustBeNumeric}
-        Rs_pre {mustBeNumeric}
+        U_pre {mustBeNumeric}
+        R_pre {mustBeNumeric}
     end
 
     methods
