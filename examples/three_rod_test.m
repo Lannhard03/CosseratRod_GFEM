@@ -40,10 +40,10 @@ F.phi(65:96, 3) = linspace(0, 0.5, 32).';
 F.R(65:96, 1) = 1/sqrt(2);
 F.R(65:96, 4) = -1/sqrt(2); %Rotation 90 around z-axis
 
-F.Us_pre = zeros(num_edges, 3); %One strain for each edge.
-F.Us_pre(:, 1) = 1;
+F.U_pre = zeros(num_edges, 3); %One strain for each edge.
+F.U_pre(:, 1) = 1;
 
-F.Rs_pre = zeros(num_edges, 3);
+F.R_pre = zeros(num_edges, 3);
 
 draw_network(F);
 
@@ -58,7 +58,7 @@ prm.sigma = 1e-4;
 prm.iter_max = 1000;
 prm.allowed_failed_backtracks = 5;
 
-F = BasicSolver(F, prm);
+F = cosserat_solver(F, prm);
 
 
 after_log = quat_log(F.R(32, :), F.R(33, :));

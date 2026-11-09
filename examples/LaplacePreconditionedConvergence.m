@@ -36,24 +36,34 @@ end
 prm = solver_param;
 prm.backtracking_max = 100;
 prm.beta = 0.9;
-prm.alpha = 2.0;
+%2 / (1 + (1 - dist/8)) = 1.1612 is optimal for Richardson iteration,
+% but 2 works better here? Maybe bad estimate of eigenvals?
+prm.alpha = 1.1612; 
 prm.sigma = 1e-4;
 prm.iter_max = 1000;
 prm.allowed_failed_backtracks = 5;
+
+
+%Exact energy is 1/2 * (dist(u_0, u_1) * 1/sqrt(2))^2 = pi^2 / 16
+exact_energy = pi^2 / 16;
+
+%Theoretical convergence rate is 1/8 * dist(u_0, u_1) = 
+% = sqrt(2)pi/16 or roughly 0.2777
+conv_rate_theo = sqrt(2)*pi/16;
 
 energy_hist = zeros(4, prm.iter_max);
 m = [16, 32, 64, 128, 256];
 for i = 1:5
     F = test_network(m(i));
-    [F, energy_hist(i, :)] = LaplaceSolver(F, prm);
+    [F, energy_hist(i, :)] = laplace_solver(F, prm);
 end
 
 energies = energy_hist(5, :);
 num = sum(energies ~= 0);
-final = energies(num);
-diff = energies(1:num) - final;
-convergence_rate = diff(2:num) ./ diff(1:(num-1))
+diff = abs(energies(1:num) - exact_energy);
+convergence_rate = diff(2:num) ./ diff(1:(num-1));
 
-
-plot(1:prm.iter_max, energy_hist)
+hold on
+plot(1:num, diff)
+plot(1:num, conv_rate_theo.^(1:num))
 yscale log

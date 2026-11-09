@@ -25,17 +25,11 @@ function [F, energy_hist] = laplace_solver(F, params)
         laplacian = curved_laplacian(F);
         gradR = reshape(gradR,[],1);
         gradR = linsolve(-laplacian, gradR);
-        gradR = reshape(gradR,[], 3);
-
-
-
-        %gradR = enforce_boudaries(F, gradR);
-        
+        gradR = reshape(gradR,[], 3);        
     
         %Compute length of gradient
         gradR_len = 0;
         for i = 1:F.num_network_index
-            %WHY do I multiply by 1/2 here??
             gradR_len= gradR_len + 1/2 * norm(gradR(i, :));
         end
         fprintf("gradient length is: %d\n",gradR_len);
@@ -69,6 +63,8 @@ function J = J(F)
         logR = quat_log(R1, R2);
         L_i = logR(1) * logR(2:4) / h; %Convert to tangent vector
         
+        %Scaled by 2 from using vector I.P. for so(3) and 1/2 from def.
+        %of energy => no scaling
         J = J + h*dot(L_i, L_i);
     end
 end

@@ -29,10 +29,10 @@ F.R(:, 4) = sin(angle);
 F.R(F.m, :) = [cos(pi/4), 0, 0, sin(pi/4)];
 F.R(1, :) = [cos(pi/4), 0, sin(pi/4), 0];
 
-F.Us_pre = zeros(F.m - 1, 3); %One strain for each edge.
-F.Us_pre(:, 1) = 1;
+F.U_pre = zeros(F.m - 1, 3); %One strain for each edge.
+F.U_pre(:, 1) = 1;
 
-F.Rs_pre = zeros(F.m - 1, 3);
+F.R_pre = zeros(F.m - 1, 3);
 
 draw_network(F);
 
@@ -43,10 +43,10 @@ prm.backtracking_max = 1000;
 prm.beta = 0.9;
 prm.alpha = 2;
 prm.sigma = 1e-4;
-prm.iter_max = 1000;
+prm.iter_max = 2000;
 prm.allowed_failed_backtracks = 5;
 
-F = BasicSolver(F, prm);
+F =  cosserat_solver(F, prm);
 
 draw_network(F);
 
