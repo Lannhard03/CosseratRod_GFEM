@@ -1,5 +1,5 @@
 function F = exact_cosserat_solver(F, params)
-
+    F = F.update_network();
     J0 = J(F);  
 
     laplacian = naive_laplacian(F);
@@ -7,6 +7,9 @@ function F = exact_cosserat_solver(F, params)
     failed_backtracks = 0;
     %===== Outer loop =====
     for p = 1:params.iter_max
+
+        F = F.update_network();
+
         [gradphi, gradR] = grad_J(F);
  
         %Pre-condition with discrete laplacian
@@ -47,13 +50,10 @@ function F = exact_cosserat_solver(F, params)
 
             %Take step in gradient direction and update energy.
             F = step(F, -gradphi, -gradR, steplength);
+            F = F.update_network();
             J1 = J(F);
 
-            %Compute relative error between quadrature and exact formula..
-            %J1 = exact_quad_J(F);
-            %fprintf("Relative error to exact energy: %d\n", abs(J1 - J_quad) / J1)
-
-            %Update if new energy satisfies Armijo backtracking criterion
+            %Update when new energy satisfies Armijo backtracking criterion
             if (J0 - J1) >= params.sigma * steplength * grad_len^2
                 break;
             else
@@ -118,67 +118,33 @@ function y = mysinc(x)
 end
 
 function J = J(F)
-    J = 0;
-    
-    for i = 1:size(F.edges, 1)
-        left = F.edges(i, 1);
-        right = F.edges(i, 2);
-    
-        phi1 = F.phi(left, :);
-        phi2 = F.phi(right, :);
-    
-        R1 = F.R(left, :);
-        R2 = F.R(right, :);
-    
-        h = F.G(i);
-    
-        logR = quat_log(R1, R2);
-        Rs = logR(1) * logR(2:4) / h; %Convert to tangent vector
-    
-        Us_pre = F.U_pre(i, :);
-        Rs_pre = F.R_pre(i, :);
-    
-    
-        %Extension term
-        phi_p = (phi2 - phi1) / h;
-    
-        logR = quat_log(R1, R2);
-    
-        n = logR(2:4);
-        theta = logR(1);
-   
-        R1(2:4) = -R1(2:4);
-        Us_i = rotate_quat(phi_p, R1); %Strain at left endpoint
-        R1(2:4) = -R1(2:4);
-    
-        %Us_i = Us_i - Us_pre;
-        tang = dot(Us_i, n)*n;
-        orth1 = Us_i - tang;
-        orth2 = cross(n, orth1);
-        
-        extension_term = 0;
-        %Pre-strain term
-        w1 = F.A(i, :) .* Us_pre;
-        extension_term = extension_term + dot(w1, Us_pre);
+    tang = dot(F.Us, F.n, 2) .* F.n;
+    orth1 = F.Us - tang;
+    orth2 = cross(F.n, orth1, 2);
 
-        %Mixed terms
-        extension_term = extension_term - 2 * dot(w1, tang);
-        extension_term = extension_term - 2 * mysinc(theta) * dot(w1, orth1);
-        extension_term = extension_term + 2 * theta/2 * mysinc(theta/2)^2 * dot(w1, orth2);
+    %Pre-strain terms
+    w1 = F.A .* F.U_pre;
+    extension_terms = dot(w1, F.U_pre, 2);
 
-        %Strain terms
-        extension_term = extension_term + dot(F.A(i, :) .* tang, tang);
-        extension_term = extension_term + 2 * mysinc(theta) * dot(F.A(i, :) .* tang, orth1); 
-        extension_term = extension_term - theta*mysinc(theta/2)^2 * dot(F.A(i, :) .* tang, orth2); 
-        extension_term = extension_term + (1/2 + mysinc(2*theta)/2) * dot(F.A(i, :) .* orth1, orth1);
-        extension_term = extension_term - theta*mysinc(theta)^2 * dot(F.A(i, :) .* orth2, orth1);
-        extension_term = extension_term + (1/2 - mysinc(2*theta)/2) * dot(F.A(i, :) .* orth2, orth2);
+    %Mixed terms
+    extension_terms = extension_terms - 2 * dot(w1, tang, 2);
+    extension_terms = extension_terms - 2 * mysinc(F.theta) .* dot(w1, orth1, 2);
+    extension_terms = extension_terms + 2 * F.theta/2 .* mysinc(F.theta/2).^2 .* dot(w1, orth2, 2);
 
-        %Curvature term
-        %*2 from scaling of I.P, and then scale 1/2 from def. of energy.
-        curvature_term = 2*dot(F.K(i, :), (Rs - Rs_pre).^2);
-        J = J + h/2*curvature_term + h/2*extension_term;
-    end
+    %Strain terms
+    extension_terms = extension_terms + dot(F.A .* tang, tang, 2);
+    extension_terms = extension_terms + 2 * mysinc(F.theta) .* dot(F.A .* tang, orth1, 2); 
+    extension_terms = extension_terms - F.theta .* mysinc(F.theta/2).^2 .* dot(F.A .* tang, orth2, 2); 
+    extension_terms = extension_terms + (1/2 + mysinc(2*F.theta)/2) .* dot(F.A .* orth1, orth1, 2);
+    extension_terms = extension_terms - F.theta .* mysinc(F.theta).^2 .* dot(F.A .* orth2, orth1, 2);
+    extension_terms = extension_terms + (1/2 - mysinc(2*F.theta)/2) .* dot(F.A .* orth2, orth2, 2);
+
+    extension_sum = 1/2*sum(F.G .* extension_terms);
+
+    curvature_terms = 2*dot(F.K, (F.Rs - F.R_pre).^2, 2);
+    curvature_sum = 1/2*sum(F.G .* curvature_terms);
+    
+    J = extension_sum + curvature_sum;
 end
 
 function [gradphi, gradR] = grad_J(F)
@@ -195,30 +161,18 @@ function [gradphi, gradR] = grad_J(F)
         network_left  = F.network_index(left);
         network_right = F.network_index(right);
 
-        phi1 = F.phi(left, :);
-        phi2 = F.phi(right, :);
-
         R1 = F.R(left, :);
-        R2 = F.R(right, :);
 
         h = F.G(i);
 
         Us_pre = F.U_pre(i, :);
         Rs_pre = F.R_pre(i, :);
 
-        phi_p = (phi2 - phi1) / h;
-
-        logR = quat_log(R1, R2);
-
-        Rs = logR(1) * logR(2:4) / h;
-        v = logR(1) * logR(2:4);
-
-        n = logR(2:4);
-        theta = logR(1);
-
-        R1(2:4) = -R1(2:4);
-        Us_i = rotate_quat(phi_p, R1); %Strain at left endpoint
-        R1(2:4) = -R1(2:4);
+        n = F.n(i, :);
+        theta = F.theta(i);
+        v = theta*n;
+        Rs = v / F.G(i);
+        Us_i = F.Us(i, :);
 
         for j = 1:3
             E = zeros(1, 3);
@@ -271,6 +225,41 @@ function [gradphi, gradR] = grad_J(F)
             end
         end
     end 
+
+    % for j = 1:3
+    %     E = zeros(size(F.edges, 1), 3);
+    %     Z = zeros(size(F.edges, 1), 3);
+    %     E(:, j) = 1;
+    % 
+    %     %=========gradR==============
+    %     %Contribution from curvature strain:
+    %     term_1 = 2*dot(F.K .* (F.Rs - F.R_pre),  E, 2);
+    %     term_2 = 2*F.G .* dot(F.K .* (F.Rs - F.R_pre), 1/2*cross(F.Rs, E, 2), 2);
+    % 
+    %     %Loop over edges, skipping fixed nodes.
+    %     for i = 1:size(F.edges, 1)
+    %         n_left = network_left(i);
+    %         n_right = network_right(i);
+    %         if n_left ~= 0
+    %             gradR(n_left,  j)  = gradR(n_left, j)  - term_1(i) + term_2(i);
+    %         end
+    %         if n_left ~= 0
+    %             gradR(n_right,  j)  = gradR(n_right, j)  + term_1(i) + term_2(i);
+    %         end
+    % 
+    %     end
+    % 
+    %     if network_left > 0
+    %         left = rot_integral_variation(v, Z, E, Us_i, Us_pre, diag(A));
+    % 
+    %         gradR(network_left, j)  = gradR(network_left, j)  + 2*h*left;
+    %     end
+    %     if network_right > 0
+    %         right = rot_integral_variation(v, E, Z, Us_i, Us_pre, diag(A));
+    % 
+    %         gradR(network_right, j) = gradR(network_right, j) + 2*h*right;
+    %     end
+    % end
 end
 
 function result = I2(theta, n, x, y, A)

@@ -37,6 +37,8 @@ F.U_pre(:, 1) = 1;
 
 F.R_pre = zeros(num_edges, 3);
 
+F = F.update_network();
+
 
 draw_network(F);
 init_log = quat_log(F.R(32, :), F.R(33, :));
@@ -50,7 +52,7 @@ prm.sigma = 1e-4;
 prm.iter_max = 1000;
 prm.allowed_failed_backtracks = 5;
 
-F = cosserat_solver(F, prm);
+F = exact_cosserat_solver(F, prm);
 
 after_log = quat_log(F.R(32, :), F.R(33, :));
 

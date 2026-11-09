@@ -34,6 +34,8 @@ F.U_pre(:, 1) = 1;
 
 F.R_pre = zeros(F.m - 1, 3);
 
+F = F.update_network();
+
 draw_network(F);
 
 
@@ -43,10 +45,10 @@ prm.backtracking_max = 1000;
 prm.beta = 0.9;
 prm.alpha = 2;
 prm.sigma = 1e-4;
-prm.iter_max = 2000;
+prm.iter_max = 500;
 prm.allowed_failed_backtracks = 5;
 
-F =  cosserat_solver(F, prm);
+F = exact_cosserat_solver(F, prm);
 
 draw_network(F);
 

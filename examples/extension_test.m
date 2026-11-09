@@ -32,6 +32,8 @@ F.U_pre(:, 1) = 1;
 
 F.R_pre = zeros(F.m - 1, 3);
 
+F = F.update_network();
+
 draw_network(F);
 
 %Define solver parameters

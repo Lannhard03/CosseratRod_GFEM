@@ -29,6 +29,8 @@ function F = test_network(m)
     %Hard code R
     F.R(1, :) = [1, 0, 0, 0];
     F.R(F.m, :) = [cos(pi/4), 0, 0, sin(pi/4)];
+
+    F = F.update_network();
 end
 
 

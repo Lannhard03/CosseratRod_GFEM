@@ -38,6 +38,7 @@ F.U_pre(:, 1) = 1;
 
 F.R_pre = zeros(size(F.edges, 1), 3);
 
+F = F.update_network();
 end
 
 function Rs = estimate_strain(F)
