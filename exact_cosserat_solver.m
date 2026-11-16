@@ -118,6 +118,8 @@ function y = mysinc(x)
 end
 
 function J = J(F)
+    %Note assembly is done automatically, as the energy depends only
+    %on things dependent on the edges, and not the nodal values.
     tang = dot(F.Us, F.n, 2) .* F.n;
     orth1 = F.Us - tang;
     orth2 = cross(F.n, orth1, 2);

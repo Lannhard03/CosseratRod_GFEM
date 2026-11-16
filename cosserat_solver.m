@@ -761,7 +761,6 @@ function [x1,x2,x3,x4,x5] = rot_deriv_vectors(v, w_next, w_cur, xi)
     x5 = eta;
 end
 
-
 function I = rot_integral_four(x1, x2, x3, x4, x5, M, v, xi, xit)
     % Exact value of
     %  int_0^1 ((1-cos(th t))x1 - t sin(th t)x2 + t cos(th t)x3 + sin(th t)x4
