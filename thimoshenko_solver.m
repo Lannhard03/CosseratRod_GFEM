@@ -14,15 +14,6 @@ function F = thimoshenko_solver(F, params)
         %Pre-condition with discrete laplacian
         gradu = linsolve(-laplacian, gradu);
         gradr = linsolve(-laplacian, gradr);
-
-        %Pre-conditioning R with Laplacian gives worse results,
-        %what is the correct way to pre-condition it?
-
-        %curve_laplacian = curved_laplacian(F);
-        %gradR = reshape(gradR, [], 1);
-        %gradR = linsolve(-curve_laplacian, gradR);
-        %gradR = reshape(gradR, [], 3);
-
     
         %Compute length of gradient
         gradu_len = 0;
@@ -102,12 +93,6 @@ function F = step(F, gradu, gradr, steplength)
     end
 end
 
-function y = mysinc(x)
-    y = ones(size(x));
-    nz = (x ~= 0);
-    y(nz) = sin(x(nz)) ./ (x(nz));
-end
-
 function J = J(F)
     left = F.edges(:, 1);
     right = F.edges(:, 2);
@@ -172,8 +157,6 @@ function [gradu, gradr] = grad_J(F)
 
     %Terms for r gradient, split into terms which depend on the nodal
     %value at the left or right endpoint.
-    
-
     gradr_left  = F.G.* (u_p_cross/2 + r_2cross_l / 3 + r_2cross_r / 6 - F.K .* r_p);
 
     gradr_right = F.G.* (u_p_cross/2 + r_2cross_r / 3 + r_2cross_l / 6 + F.K .* r_p);
