@@ -41,9 +41,9 @@ F.n(:, 1) = 1;
 prm = solver_param;
 prm.backtracking_max = 1000;
 prm.beta = 0.9;
-prm.alpha = 2;
-prm.sigma = 1e-4;
-prm.iter_max = 1000;
+prm.alpha = 0.1;
+prm.sigma = 1e-8;
+prm.iter_max = 10000;
 prm.allowed_failed_backtracks = 5;
 
 draw_linearnetwork(F);
@@ -53,7 +53,7 @@ F = thimoshenko_solver(F, prm);
 draw_linearnetwork(F);
 
 %Compare with reference solution
-load("data/32grid_RefSol.mat");
+load("data/32_one_rod_ref.mat");
 %draw_rod(phi_ref, R_ref);
 
 %phi = F.phi;

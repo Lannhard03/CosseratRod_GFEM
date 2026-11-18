@@ -20,7 +20,6 @@ F = F.apply_connections();
 F.phi = zeros(F.m, 3);
 F.R = zeros(F.m, 4);
 
-%Phi goes forward for visualization purposes, we only solve over R!!
 F.phi(:, 1) = linspace(0, 1, F.m).';
 %F.R(:, 1) = 1;
 
@@ -68,7 +67,7 @@ prm.backtracking_max = 100;
 prm.beta = 0.9;
 prm.alpha = 0.6;
 prm.sigma = 1e-4;
-prm.iter_max = 1000;
+prm.iter_max = 5000;
 prm.allowed_failed_backtracks = 5;
 
 
@@ -76,6 +75,6 @@ m = 64;
 F = test_network_local(64);
 
 draw_network(F);
-F = cosserat_solver(F, prm);
+F = exact_cosserat_solver(F, prm);
 
 draw_network(F);

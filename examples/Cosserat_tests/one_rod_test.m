@@ -53,7 +53,7 @@ F = exact_cosserat_solver(F, prm);
 draw_network(F);
 
 %Compare with reference solution
-load("data/32grid_RefSol.mat");
+load("data/32_one_rod_ref.mat");
 draw_rod(phi_ref, R_ref);
 
 phi = F.phi;
