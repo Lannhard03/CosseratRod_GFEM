@@ -111,47 +111,6 @@ function J = J(F)
     end
 end
 
-
-function gradR = grad_J(F)
-    gradR = zeros(F.num_network_index, 3);
-
-    for i = 1:size(F.edges, 1)
-        Rs_pre = F.R_pre(i, :);
-        K = F.K(i, :);
-        left = F.edges(i, 1);
-        right = F.edges(i, 2);
-
-        network_left  = F.network_index(left);
-        network_right = F.network_index(right);
-
-        R1 = F.R(left, :);
-        R2 = F.R(right, :);
-
-        h = F.G(i);
-
-        logR = quat_log(R1, R2);
-        Rs = logR(1) * logR(2:4) / h; %Convert to tangent vector
-        
-        %Loop over the three possible directions:
-        for j = 1:3
-            E = zeros(1, 3);
-            E(j) = 1;
-
-            term_1 = dot(K.* (Rs - Rs_pre),  E);
-
-            term_2 = h * dot(K.* (Rs - Rs_pre), 1/2*cross(Rs, E));
-
-            if network_left > 0
-                gradR(network_left, j)  = gradR(network_left, j)  - term_1 + term_2;
-            end
-            if network_right > 0
-                gradR(network_right, j) = gradR(network_right, j) + term_1 + term_2;
-            end
-        end
-    end
-end
-
-
 function F = step(F, gradR, steplength)    
     gradR = steplength*gradR;
     
@@ -170,3 +129,50 @@ function F = step(F, gradR, steplength)
         %else no need to update
     end
 end
+
+
+function gradR = grad_J(F)
+    gradR = zeros(F.num_network_index, 3);
+    
+    
+    %Rs_pre = F.R_pre(:, :);
+    %K = F.K(i, :);
+    left = F.edges(:, 1);
+    right = F.edges(:, 2);
+
+    network_left  = F.network_index(left);
+    network_right = F.network_index(right);
+
+    R_left = F.R(left, :);
+    R_right = F.R(right, :);
+
+    logR = quat_log(R_left, R_right);
+    v = logR(:, 1) .* logR(:, 2:4);
+    Rs = v ./ F.G; %Convert to tangent vector
+    b = vecnorm(v, 2, 2) / (2*sqrt(2));
+    w = F.K .* (Rs - F.R_pre);
+
+
+    %Loop over the three possible directions:
+    for j = 1:3
+        E = zeros(size(F.edges, 1), 3);
+        E(:, j) = 1;
+
+        sign_terms  = RotRotVar_sign(F.G, b, E, w, v);
+        unsign_terms  = RotRotVar(F.G, b, E, w, v);
+     
+        for i = 1:size(F.edges, 1)
+            network_left  = F.network_index(left(i));
+            network_right = F.network_index(right(i));
+
+            if network_left > 0
+                gradR(network_left, j) = gradR(network_left, j) - sign_terms(i) + unsign_terms(i);
+            end
+            if network_right > 0
+                gradR(network_right, j) = gradR(network_right, j) + sign_terms(i) + unsign_terms(i);
+            end
+        end
+    end
+end
+
+

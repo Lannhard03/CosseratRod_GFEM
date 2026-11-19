@@ -49,11 +49,11 @@ prm.backtracking_max = 100;
 prm.beta = 0.9;
 prm.alpha = 0.6;
 prm.sigma = 1e-4;
-prm.iter_max = 5000;
+prm.iter_max = 1000;
 prm.allowed_failed_backtracks = 5;
 
 energy_hist = zeros(4, prm.iter_max);
-m = [64];
+m = [4, 8, 16, 32, 64, 128, 256];
 for i = 1:size(m, 2)
     F = test_network(m(i));
     [F, energy_hist(i, :)] = kirchoff_solver(F, prm);
@@ -66,29 +66,7 @@ diff = energies(1:num) - final;
 convergence_rate = diff(2:num) ./ diff(1:(num-1));
 
 
-diff_to_ref = zeros(size(F.edges, 1), 3);
-for i = 1:size(F.edges, 1)
-    left = F.edges(i, 1);
-    right = F.edges(i, 2);
+%draw_network(F);
 
-    R1 = F.R(left, :);
-    R2 = F.R(right, :);
-
-    h = F.G(i);
-
-    %Strain
-    logR = quat_log(R1, R2);
-    Rs = logR(1) * logR(2:4) / h;
-
-    %Pre-strain
-    Rs_pre = F.R_pre(i, :);
-
-    diff_to_ref(i, :) = Rs - Rs_pre;
-end
-
-
-
-draw_network(F);
-
-%plot(1:prm.iter_max, energy_hist)
-%yscale log
+plot(1:prm.iter_max, energy_hist)
+yscale log

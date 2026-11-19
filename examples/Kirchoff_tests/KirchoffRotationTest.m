@@ -31,7 +31,7 @@ function F = test_network_local(m)
     
     %Hard code R
     F.R(1, :) = [1, 0, 0, 0];
-    F.R(F.m, :) = [1, 0, 0, 0];
+    %F.R(F.m, :) = [1, 0, 0, 1];
 
     F.R_pre = zeros(size(F.edges, 1), 3);
     F.R_pre(:, 1) = 1*pi;
